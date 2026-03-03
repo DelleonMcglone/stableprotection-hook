@@ -1,0 +1,17 @@
+{
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.15.0",
+      "rev": "0844d7e1fc5e60d77b68e469bff60265f236c398"
+    }
+  },
+  "lib/solmate": {
+    "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
+  },
+  "lib/v4-periphery": {
+    "rev": "eeb3eff"
+  },
+  "lib/v4-template": {
+    "rev": "1fbf95547791f0821a170b88c750cb2e04e6818b"
+  }
+}
