@@ -252,11 +252,11 @@ Use `HookMiner.find(CREATE2_PROXY, flags, creationCode, constructorArgs)` to min
 
 ### ai-assisted-security-analysis
 
-Automated static analysis and security scanning of the hook contract and supporting libraries. Provides vulnerability detection and audit tooling across the Solidity codebase.
+Automated static analysis and security scanning of the hook contract and supporting libraries. Provides vulnerability detection and audit tooling across the Solidity codebase. https://github.com/trailofbits/skills
 
 ### uniswap-ai
 
-Research tooling and reference implementations from the Uniswap AI ecosystem. Contributed to advanced AMM pattern research and hook development workflow during the hackathon build.
+Research tooling and reference implementations from the Uniswap AI ecosystem. Contributed to advanced AMM pattern research and hook development workflow during the hackathon build. https://github.com/Uniswap/uniswap-ai
 
 ---
 
