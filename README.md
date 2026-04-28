@@ -2,7 +2,7 @@
 
 A Uniswap v4 hook that protects stablecoin liquidity providers from depeg events through real-time peg monitoring, graduated dynamic fees, and an automatic circuit breaker.
 
-Built for the **Atrium Academy UHI8 Hookathon** · Deployed on **Unichain Sepolia** (Chain ID 1301)
+Built for the **Atrium Academy UHI8 Hookathon** · Deployed on **Unichain Sepolia** (Chain ID 1301) and **Base Sepolia** (Chain ID 84532)
 
 ---
 
@@ -127,7 +127,8 @@ test/
     └── StableProtectionHook.integration.t.sol   9 tests (full PoolManager stack)
 
 script/
-├── Deploy.s.sol                     Full deploy: hook + pool + liquidity + swap
+├── Deploy.s.sol                     Full deploy on Unichain Sepolia (mock tUSDC/tUSDT)
+├── DeployBaseSepolia.s.sol          Full deploy on Base Sepolia (real Circle USDC/EURC)
 └── TestPoolSwap.s.sol               Standalone: new pool + swap on existing hook
 ```
 
@@ -192,13 +193,56 @@ forge script script/Deploy.s.sol:Deploy \
   -vvvv
 ```
 
+### Deploy to Base Sepolia
+
+Uses Circle's official testnet **USDC** and **EURC** on Base Sepolia — no mock tokens deployed. The deployer wallet must hold ≥ 60 USDC and ≥ 60 EURC (faucets: [Circle USDC](https://faucet.circle.com/), [Circle EURC](https://faucet.circle.com/)).
+
+```bash
+cp .env.example .env   # add PRIVATE_KEY and BASE_SEPOLIA_RPC
+source .env
+
+forge script script/DeployBaseSepolia.s.sol:DeployBaseSepolia \
+  --rpc-url base_sepolia \
+  --broadcast \
+  --slow \
+  -vvvv
+```
+
 Required `.env` variables:
 
 ```
 PRIVATE_KEY=0x...
 UNICHAIN_SEPOLIA_RPC=https://sepolia.unichain.org
+BASE_SEPOLIA_RPC=https://sepolia.base.org
 ETHERSCAN_API_KEY=<uniscan-api-key>
+BASESCAN_API_KEY=<basescan-api-key>
 ```
+
+---
+
+## Deployed Addresses — Base Sepolia (Chain ID 84532)
+
+| Contract | Address | Basescan |
+|---|---|---|
+| StableProtectionHook | `0xe5e6a9E09Ad1e536788f0c142AD5bc69e8B020C0` | [view](https://sepolia.basescan.org/address/0xe5e6a9E09Ad1e536788f0c142AD5bc69e8B020C0) |
+| USDC (Circle) | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | [view](https://sepolia.basescan.org/address/0x036CbD53842c5426634e7929541eC2318f3dCF7e) |
+| EURC (Circle) | `0x808456652fdb597867f38412077A9182bf77359F` | [view](https://sepolia.basescan.org/address/0x808456652fdb597867f38412077A9182bf77359F) |
+| PoolManager (v4) | `0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408` | [view](https://sepolia.basescan.org/address/0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408) |
+
+**Pool ID**: `0x8e929e2af7edea4c196aa0718602f0892b7ecbc205491ffb170640ca75b3c4ab`
+**Pair**: USDC / EURC (currency0 = USDC, currency1 = EURC; both 6-decimal)
+**Tick spacing**: 1 · **Fee**: dynamic · **Tick range at deploy**: `[-10, 10]`
+
+### End-to-End Verified Transactions
+
+| Action | Basescan |
+|---|---|
+| Hook deployed (CREATE2) | [0xad6032…](https://sepolia.basescan.org/tx/0xad6032f043fd55783f0d5a7ce015d68ef8bd50f3dde0dde6838a2b1d27d017ef) |
+| Pool created (`initialize`) | [0x5cc896…](https://sepolia.basescan.org/tx/0x5cc896b9bb6e2501d49554a70951d9f2d8ca16b53f2cd98092eea56357e8e4eb) |
+| Liquidity added (~50 USDC + ~50 EURC) | [0xd93732…](https://sepolia.basescan.org/tx/0xd937322f8aa9051e1fc9e6e8e29cd764ca558e2b969d44ccabf2a5a32633543a) |
+| Test swap (5 USDC → EURC) | [0x53c8f0…](https://sepolia.basescan.org/tx/0x53c8f07ae248c4cf7b14126e0aaf5dfd0d236c40e3daa9a1c1d8a1aad8e9a884) |
+
+Post-swap on-chain state read from `getZoneState(poolId)`: zone = **HEALTHY**, `currentDeviationBps` = **0**, confirming `beforeSwap` (dynamic fee applied via `OVERRIDE_FEE_FLAG`) and `afterSwap` (zone snapshot updated) executed correctly against the real Circle stablecoins.
 
 ---
 
