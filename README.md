@@ -2,7 +2,7 @@
 
 A Uniswap v4 hook that protects stablecoin liquidity providers from depeg events through real-time peg monitoring, graduated dynamic fees, and an automatic circuit breaker.
 
-Built for the **Atrium Academy UHI8 Hookathon** · Deployed on **Unichain Sepolia** (Chain ID 1301) and **Base Sepolia** (Chain ID 84532)
+Built for the **Atrium Academy UHI8 Hookathon** · Deployed on **Arc Testnet** (Chain ID 5042002), **Unichain Sepolia** (Chain ID 1301), and **Base Sepolia** (Chain ID 84532)
 
 ---
 
@@ -129,6 +129,8 @@ test/
 script/
 ├── Deploy.s.sol                     Full deploy on Unichain Sepolia (mock tUSDC/tUSDT)
 ├── DeployBaseSepolia.s.sol          Full deploy on Base Sepolia (real Circle USDC/EURC)
+├── DeployArcTestnet.s.sol           Arc Testnet: deploys v4 stack + hook + pool init
+├── deploy_arc.sh                    Arc orchestrator: forge deploy + cast liquidity/swap
 └── TestPoolSwap.s.sol               Standalone: new pool + swap on existing hook
 ```
 
@@ -214,8 +216,61 @@ Required `.env` variables:
 PRIVATE_KEY=0x...
 UNICHAIN_SEPOLIA_RPC=https://sepolia.unichain.org
 BASE_SEPOLIA_RPC=https://sepolia.base.org
+ARC_TESTNET_RPC_URL=https://rpc.testnet.arc.network
 ETHERSCAN_API_KEY=<uniscan-api-key>
 BASESCAN_API_KEY=<basescan-api-key>
+```
+
+---
+
+## Deployed Addresses — Arc Testnet (Chain ID 5042002)
+
+Deployed on **Arc**, Circle's USDC-native L1 (gas is paid in USDC). Uses Circle's
+official Arc Testnet **USDC** and **EURC**. Arc has no public Uniswap v4 deployment,
+so this deployment includes a self-contained v4 stack (PoolManager + test routers)
+deployed alongside the hook.
+
+| Contract | Address | Arcscan |
+|---|---|---|
+| StableProtectionHook | `0xF131A048875E578A0F89393e858C0442fcD7e0C0` | [view](https://testnet.arcscan.app/address/0xF131A048875E578A0F89393e858C0442fcD7e0C0) |
+| USDC (Circle) | `0x3600000000000000000000000000000000000000` | [view](https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000) |
+| EURC (Circle) | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` | [view](https://testnet.arcscan.app/address/0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a) |
+| PoolManager (v4) | `0x15B5f2c054b9DC788250131FCD1bcfCC34080a59` | [view](https://testnet.arcscan.app/address/0x15B5f2c054b9DC788250131FCD1bcfCC34080a59) |
+| PoolModifyLiquidityTest | `0x4f81385fa50336e4cbA6718A803f3e2Baa09D1c0` | [view](https://testnet.arcscan.app/address/0x4f81385fa50336e4cbA6718A803f3e2Baa09D1c0) |
+| PoolSwapTest | `0xeA44982cB8b71A9BF69bfe3F3f5b43E1790be4d1` | [view](https://testnet.arcscan.app/address/0xeA44982cB8b71A9BF69bfe3F3f5b43E1790be4d1) |
+
+**Pool ID**: `0xd96b50ff81c1381d3f5f6ee8ed0f8b57f3d94126e4e479021bae92cb90c3f48f`
+**Pair**: USDC / EURC (currency0 = USDC, currency1 = EURC; both 6-decimal)
+**Tick spacing**: 1 · **Fee**: dynamic · **Tick range at deploy**: `[-10, 10]`
+
+### End-to-End Verified Transactions
+
+| Action | Arcscan |
+|---|---|
+| PoolManager deployed | [0x332a47…](https://testnet.arcscan.app/tx/0x332a47394bdcaa755c7fd0d82c5c9cb572df04ee951315e65d9ebebf8a3457ba) |
+| Hook deployed (CREATE2) | [0xe5e32d…](https://testnet.arcscan.app/tx/0xe5e32dbebf0ae706e0887070870259744a19a487054a7dfe51c29c5cb0e43220) |
+| Pool created (`initialize`) | [0x5932d1…](https://testnet.arcscan.app/tx/0x5932d1ae48394aa9d4fb44c480d68c5b3773653fafdb6a58ae9f3e4fbc793977) |
+| Liquidity added (~15 USDC + ~15 EURC) | [0xbfed03…](https://testnet.arcscan.app/tx/0xbfed0304f933d3b0b1461d607fc2b0b64d0ce2cb2bf948531fcb893760b0db9d) |
+| Test swap (5 USDC → EURC) | [0x44e0a6…](https://testnet.arcscan.app/tx/0x44e0a6994e2c0d6dde48d9c324528f503c99d0912db7dff2ee1e7948cbdb3f3f) |
+
+Post-swap on-chain state read from `getZoneState(poolId)`: zone = **HEALTHY**,
+`currentDeviationBps` = **3**, confirming `beforeSwap` (dynamic fee applied via
+`OVERRIDE_FEE_FLAG`) and `afterSwap` (zone snapshot updated) executed correctly
+against the real Circle stablecoins on Arc.
+
+### Deploy to Arc Testnet
+
+Arc's USDC/EURC are *native fiat tokens* whose transfers run through chain-level
+precompiles that Foundry's local EVM can't execute, so the deploy is split: a
+`forge script` deploys the v4 stack + hook and initializes the pool (no token
+moves), then `cast send` adds liquidity and runs the test swap against the live
+node. The [`script/deploy_arc.sh`](script/deploy_arc.sh) wrapper orchestrates both.
+
+```bash
+export ARC_TESTNET_RPC_URL=https://rpc.testnet.arc.network
+# Import the funded deployer once (gas + liquidity are paid in USDC/EURC):
+cast wallet import arc-deployer --interactive
+./script/deploy_arc.sh <deployer-address> arc-deployer
 ```
 
 ---

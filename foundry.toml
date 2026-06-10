@@ -15,7 +15,10 @@ runs = 256
 [rpc_endpoints]
 unichain_sepolia = "${UNICHAIN_SEPOLIA_RPC}"
 base_sepolia = "${BASE_SEPOLIA_RPC}"
+arc_testnet = "${ARC_TESTNET_RPC_URL}"
 
 [etherscan]
 unichain_sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://sepolia.uniscan.xyz/api" }
 base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
+# Arc Testnet uses a Blockscout explorer; verification is optional and key-less.
+arc_testnet = { key = "", url = "https://testnet.arcscan.app/api", chain = 5042002 }
