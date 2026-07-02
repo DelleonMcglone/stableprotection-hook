@@ -56,16 +56,21 @@ contract DeployArc is Script {
     );
 
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(pk);
+        // Two signers: PRIVATE_KEY (funded) deploys + seeds; KEEPER_PRIVATE_KEY
+        // is the hook owner and signs the owner-only setPegReference. The keeper
+        // needs only a little USDC (gas) — it never holds pool funds.
+        uint256 deployerPk = vm.envUint("PRIVATE_KEY");
+        uint256 keeperPk = vm.envUint("KEEPER_PRIVATE_KEY");
+        address hookOwner = vm.addr(keeperPk);
         uint256 eurUsdX18 = vm.envUint("EUR_USD_X18");
         require(eurUsdX18 > 0, "EUR_USD_X18 required");
-        address hookOwner = vm.envOr("HOOK_OWNER", deployer);
         address poolManager = vm.envOr("POOL_MANAGER", DEFAULT_POOL_MANAGER);
         uint256 seedL = vm.envOr("SEED_L", uint256(5_000e6));
 
         require(poolManager.code.length > 0, "PoolManager has no bytecode");
         IPoolManager manager = IPoolManager(poolManager);
+        console2.log("Deployer:", vm.addr(deployerPk));
+        console2.log("Hook owner (keeper):", hookOwner);
 
         // ── 1. Mine + deploy the hook (owner = keeper EOA) ───────────────────
         (address hookAddr, bytes32 salt) = HookMiner.find(
@@ -76,7 +81,7 @@ contract DeployArc is Script {
         );
         console2.log("Mined hook:", hookAddr);
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast(deployerPk);
 
         StableProtectionHook hook =
             new StableProtectionHook{salt: salt}(manager, hookOwner);
@@ -106,14 +111,16 @@ contract DeployArc is Script {
         manager.initialize(key, sqrtP);
         console2.log("Initialized at sqrtPriceX96:", sqrtP);
 
-        // ── 4. Seed liquidity around the fair tick ───────────────────────────
+        // ── 4. Seed liquidity around the fair tick (deployer) ────────────────
         _seedLiquidity(manager, key, sqrtP, seedL);
 
-        // ── 5. Anchor the peg reference to EUR/USD ────────────────────────────
-        hook.setPegReference(id, eurUsdX18);
-        console2.log("Peg reference set (EUR/USD x18):", eurUsdX18);
-
         vm.stopBroadcast();
+
+        // ── 5. Anchor the peg reference to EUR/USD (keeper = owner) ───────────
+        vm.startBroadcast(keeperPk);
+        hook.setPegReference(id, eurUsdX18);
+        vm.stopBroadcast();
+        console2.log("Peg reference set (EUR/USD x18):", eurUsdX18);
 
         console2.log("=== ARC STABLE PROTECTION (FX-AWARE) ===");
         console2.log("hook:       ", address(hook));
