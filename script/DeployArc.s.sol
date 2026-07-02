@@ -65,7 +65,11 @@ contract DeployArc is Script {
         uint256 eurUsdX18 = vm.envUint("EUR_USD_X18");
         require(eurUsdX18 > 0, "EUR_USD_X18 required");
         address poolManager = vm.envOr("POOL_MANAGER", DEFAULT_POOL_MANAGER);
-        uint256 seedL = vm.envOr("SEED_L", uint256(5_000e6));
+        // Default 0: seeding from a forge script is not possible on Arc (its USDC
+        // precompile calls a compliance precompile forge's EVM can't run). Add
+        // liquidity via the app after deploy. Set SEED_L>0 only on chains without
+        // that precompile.
+        uint256 seedL = vm.envOr("SEED_L", uint256(0));
 
         require(poolManager.code.length > 0, "PoolManager has no bytecode");
         IPoolManager manager = IPoolManager(poolManager);
@@ -111,8 +115,12 @@ contract DeployArc is Script {
         manager.initialize(key, sqrtP);
         console2.log("Initialized at sqrtPriceX96:", sqrtP);
 
-        // ── 4. Seed liquidity around the fair tick (deployer) ────────────────
-        _seedLiquidity(manager, key, sqrtP, seedL);
+        // ── 4. Seed liquidity around the fair tick (deployer), if requested ──
+        if (seedL > 0) {
+            _seedLiquidity(manager, key, sqrtP, seedL);
+        } else {
+            console2.log("Seeding skipped (SEED_L=0). Add liquidity via the app.");
+        }
 
         vm.stopBroadcast();
 
