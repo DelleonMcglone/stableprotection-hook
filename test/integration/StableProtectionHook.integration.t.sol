@@ -72,11 +72,11 @@ contract StableProtectionHookIntegrationTest is Test {
             address(this),
             HOOK_FLAGS,
             type(StableProtectionHook).creationCode,
-            abi.encode(address(manager))
+            abi.encode(address(manager), address(this))
         );
 
         // 3. Deploy the hook at the computed address using CREATE2.
-        hook = new StableProtectionHook{salt: salt}(IPoolManager(address(manager)));
+        hook = new StableProtectionHook{salt: salt}(IPoolManager(address(manager)), address(this));
         assertEq(address(hook), hookAddr, "hook address mismatch");
 
         // 4. Deploy swap/liquidity routers.

@@ -85,7 +85,7 @@ contract Deploy is Script {
             CREATE2_PROXY,
             HOOK_FLAGS,
             type(StableProtectionHook).creationCode,
-            abi.encode(address(manager))
+            abi.encode(address(manager), deployer)
         );
         console2.log("Hook will deploy to:", hookAddr);
 
@@ -100,7 +100,7 @@ contract Deploy is Script {
         console2.log("tUSDT:", address(tUSDT));
 
         // ── 3. Deploy hook via CREATE2 ────────────────────────────────────────
-        StableProtectionHook hook = new StableProtectionHook{salt: salt}(manager);
+        StableProtectionHook hook = new StableProtectionHook{salt: salt}(manager, deployer);
         require(address(hook) == hookAddr, "Hook address mismatch");
         console2.log("StableProtectionHook:", address(hook));
 

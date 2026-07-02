@@ -16,7 +16,7 @@ import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 
 // ─── Project types & libraries ──────────────────────────────────────────────
-import {PegZone, PoolConfig, ZoneState, CircuitBreakerTripped, AlreadyInitialized, ZoneChanged, CircuitBreakerTriggered, FeeApplied} from "./types/SPTypes.sol";
+import {PegZone, PoolConfig, ZoneState, CircuitBreakerTripped, AlreadyInitialized, NotOwner, ZoneChanged, CircuitBreakerTriggered, FeeApplied, PegReferenceUpdated} from "./types/SPTypes.sol";
 import {PegMonitor} from "./libraries/PegMonitor.sol";
 import {SPConfig} from "./libraries/SPConfig.sol";
 import {IStableProtectionHook} from "./interfaces/IStableProtectionHook.sol";
@@ -54,7 +54,14 @@ contract StableProtectionHook is BaseHook, IStableProtectionHook {
     // ─── Q96 constant ────────────────────────────────────────────────────────
     uint256 internal constant Q96 = 2 ** 96;
 
+    /// @dev Fixed-point scale for the peg reference (1e18 == 1.0).
+    uint256 internal constant WAD = 1e18;
+
     // ─── Storage ─────────────────────────────────────────────────────────────
+
+    /// @dev Peg-reference admin — may set each pool's FX reference. Set once at
+    ///      deploy; moves no funds (only adjusts the depeg-detection reference).
+    address public immutable owner;
 
     /// @dev Per-pool configuration, stored once at beforeInitialize.
     mapping(PoolId => PoolConfig) private _configs;
@@ -65,10 +72,39 @@ contract StableProtectionHook is BaseHook, IStableProtectionHook {
     /// @dev Per-pool zone state, updated in afterSwap.
     mapping(PoolId => ZoneState) private _zoneStates;
 
+    /// @dev Per-pool peg reference: value of currency1 in currency0 units at
+    ///      peg, scaled by 1e18 (EUR/USD ≈ 1.14e18 for USDC/EURC). The currency1
+    ///      reserve is multiplied by this before zone classification, so a pool
+    ///      at the true FX rate reads ~0 bps. 0 (unset) or 1e18 ⇒ 1:1 parity
+    ///      (identical to the original same-peg behaviour).
+    mapping(PoolId => uint256) private _pegRefX18;
+
     // ─── Constructor ─────────────────────────────────────────────────────────
 
     /// @param _poolManager  The Uniswap v4 PoolManager.
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    /// @param _owner        Peg-reference admin (see `setPegReference`).
+    constructor(IPoolManager _poolManager, address _owner) BaseHook(_poolManager) {
+        owner = _owner;
+    }
+
+    // ─── Owner: peg reference ────────────────────────────────────────────────
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    /// @notice Set a pool's peg reference (FX rate of currency1 in currency0
+    ///         units, scaled by 1e18). Owner-only; adjusts depeg detection only.
+    function setPegReference(PoolId poolId, uint256 refX18) external onlyOwner {
+        _pegRefX18[poolId] = refX18;
+        emit PegReferenceUpdated(PoolId.unwrap(poolId), refX18);
+    }
+
+    /// @notice The peg reference for a pool (0 = unset ⇒ 1:1 parity).
+    function pegReferenceX18(PoolId poolId) external view returns (uint256) {
+        return _pegRefX18[poolId];
+    }
 
     // ─── BaseHook: permissions ────────────────────────────────────────────────
 
@@ -147,7 +183,7 @@ contract StableProtectionHook is BaseHook, IStableProtectionHook {
         PoolConfig storage cfg = _configs[id];
 
         // Compute current virtual reserves normalized to 18 decimals.
-        (uint256 r0norm, uint256 r1norm) = _getVirtualReservesNormalized(id, cfg);
+        (uint256 r0norm, uint256 r1norm) = _pegAdjustedReserves(id, cfg);
 
         // Classify peg zone.
         (PegZone zone, uint256 deviationBps) = PegMonitor.classifyZone(r0norm, r1norm);
@@ -187,7 +223,7 @@ contract StableProtectionHook is BaseHook, IStableProtectionHook {
         PoolConfig storage cfg = _configs[id];
 
         // Read fresh virtual reserves post-swap.
-        (uint256 r0norm, uint256 r1norm) = _getVirtualReservesNormalized(id, cfg);
+        (uint256 r0norm, uint256 r1norm) = _pegAdjustedReserves(id, cfg);
 
         (PegZone newZone,) = PegMonitor.classifyZone(r0norm, r1norm);
 
@@ -227,8 +263,27 @@ contract StableProtectionHook is BaseHook, IStableProtectionHook {
     /// @inheritdoc IStableProtectionHook
     function currentDeviationBps(PoolId poolId) external view returns (uint256 deviationBps) {
         PoolConfig storage cfg = _configs[poolId];
-        (uint256 r0norm, uint256 r1norm) = _getVirtualReservesNormalized(poolId, cfg);
+        (uint256 r0norm, uint256 r1norm) = _pegAdjustedReserves(poolId, cfg);
         (, deviationBps) = PegMonitor.classifyZone(r0norm, r1norm);
+    }
+
+    // ─── Peg-adjusted reserves ───────────────────────────────────────────────
+
+    /// @notice Virtual reserves with the currency1 side scaled by the pool's peg
+    ///         reference, so zone classification measures deviation from the FX-
+    ///         fair price rather than raw 1:1. At the fair rate `r0 == r1·ref`,
+    ///         yielding ~0 bps. An unset reference (0) or 1e18 leaves reserves at
+    ///         parity — identical to the original same-peg behaviour.
+    function _pegAdjustedReserves(PoolId id, PoolConfig storage cfg)
+        internal
+        view
+        returns (uint256 r0norm, uint256 r1norm)
+    {
+        (r0norm, r1norm) = _getVirtualReservesNormalized(id, cfg);
+        uint256 ref = _pegRefX18[id];
+        if (ref != 0 && ref != WAD) {
+            r1norm = r1norm * ref / WAD;
+        }
     }
 
     // ─── Virtual reserve computation ─────────────────────────────────────────

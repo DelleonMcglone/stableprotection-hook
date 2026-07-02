@@ -21,7 +21,7 @@ import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 
 // ─── Project ─────────────────────────────────────────────────────────────────
 import {StableProtectionHook} from "../../src/StableProtectionHook.sol";
-import {PegZone, PoolConfig, CircuitBreakerTripped, AlreadyInitialized, ZoneChanged, FeeApplied} from "../../src/types/SPTypes.sol";
+import {PegZone, PoolConfig, CircuitBreakerTripped, AlreadyInitialized, NotOwner, ZoneChanged, FeeApplied, PegReferenceUpdated} from "../../src/types/SPTypes.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TestableHook
@@ -38,7 +38,7 @@ contract TestableHook is StableProtectionHook {
     uint256 public mockR0 = 1e18;
     uint256 public mockR1 = 1e18;
 
-    constructor(IPoolManager mgr) StableProtectionHook(mgr) {}
+    constructor(IPoolManager mgr) StableProtectionHook(mgr, msg.sender) {}
 
     // ── Skip address-permission validation at deploy time ───────────────────
     function validateHookAddress(BaseHook) internal pure override {}
@@ -371,6 +371,67 @@ contract StableProtectionHookTest is Test {
         hook.setMockReserves(10_010e18, 9_990e18);
         uint256 dev = hook.currentDeviationBps(key.toId());
         assertEq(dev, 20);
+    }
+
+    // ─── FX-aware peg reference ──────────────────────────────────────────────
+
+    uint256 constant WAD = 1e18;
+    // EUR/USD ≈ 1.14 → USDC/EURC fair pool price (cur1/cur0) ≈ 0.877.
+    uint256 constant EUR_USD_X18 = 1.14e18;
+
+    function test_pegReference_defaultsToZero() public {
+        _initPool();
+        assertEq(hook.pegReferenceX18(key.toId()), 0);
+    }
+
+    function test_setPegReference_ownerOnly() public {
+        _initPool();
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(NotOwner.selector);
+        hook.setPegReference(key.toId(), EUR_USD_X18);
+    }
+
+    function test_setPegReference_storesAndEmits() public {
+        _initPool();
+        vm.expectEmit(true, false, false, true, address(hook));
+        emit PegReferenceUpdated(PoolId.unwrap(key.toId()), EUR_USD_X18);
+        hook.setPegReference(key.toId(), EUR_USD_X18);
+        assertEq(hook.pegReferenceX18(key.toId()), EUR_USD_X18);
+    }
+
+    /// With an FX reference set, a pool at the FAIR rate (r1/r0 ≈ 1/1.14) reads
+    /// HEALTHY (r0 ≈ r1·ref) instead of tripping the breaker.
+    function test_fxRef_fairPricePool_isHealthy() public {
+        _initPool();
+        hook.setPegReference(key.toId(), EUR_USD_X18);
+        // r0 = 1140 USDC-side, r1 = 1000 EURC-side → r1·1.14 = 1140 == r0 → 0 bps.
+        hook.setMockReserves(1140e18, 1000e18);
+        assertEq(hook.currentDeviationBps(key.toId()), 0, "fair FX pool must read 0 bps");
+        (bytes4 sel,,) = hook.exposed_beforeSwap(key, _swapParams(true), hex"");
+        assertEq(sel, hook.beforeSwap.selector, "swap should clear at fair FX");
+    }
+
+    /// The SAME fair-rate reserves WITHOUT an FX reference (legacy 1:1) trip the
+    /// breaker — proving the reference is what unbricks the USD/EUR pool.
+    function test_fxRef_unset_fairPricePool_trips() public {
+        _initPool();
+        // No setPegReference → 1:1. r0=1140, r1=1000 → diff 140, avg 1070 →
+        // ~1308 bps → CRITICAL.
+        hook.setMockReserves(1140e18, 1000e18);
+        vm.expectRevert();
+        hook.exposed_beforeSwap(key, _swapParams(true), hex"");
+    }
+
+    /// A genuine depeg (pool far from the FX-fair price) still trips with a
+    /// reference set.
+    function test_fxRef_realDepeg_stillTrips() public {
+        _initPool();
+        hook.setPegReference(key.toId(), EUR_USD_X18);
+        // r0 = 1140, r1 = 1200 → r1·1.14 = 1368 vs 1140 → diff 228, avg 1254 →
+        // ~1818 bps → CRITICAL (a real depeg away from the FX-fair rate).
+        hook.setMockReserves(1140e18, 1200e18);
+        vm.expectRevert();
+        hook.exposed_beforeSwap(key, _swapParams(true), hex"");
     }
 
     // ─── getHookPermissions ──────────────────────────────────────────────────

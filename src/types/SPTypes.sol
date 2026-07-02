@@ -61,6 +61,9 @@ error NotPoolManager();
 /// @notice beforeInitialize was called a second time for the same pool.
 error AlreadyInitialized();
 
+/// @notice Caller is not the hook owner (peg-reference admin).
+error NotOwner();
+
 // ─── Events ────────────────────────────────────────────────────────────────────
 
 /// @notice Emitted when a pool transitions between peg zones.
@@ -79,3 +82,9 @@ event CircuitBreakerTriggered(bytes32 indexed poolId, uint256 deviationBps);
 /// @param fee        Applied fee in ppm.
 /// @param towardPeg  True if the swap pushes reserves toward parity.
 event FeeApplied(bytes32 indexed poolId, uint24 fee, bool towardPeg);
+
+/// @notice Emitted when the owner sets a pool's peg reference (FX rate, 1e18).
+/// @param poolId Keccak256 hash of the PoolKey.
+/// @param refX18 Value of currency1 in currency0 units at peg, scaled by 1e18
+///               (e.g. EUR/USD ≈ 1.14e18 for a USDC/EURC pool). 0/1e18 = 1:1.
+event PegReferenceUpdated(bytes32 indexed poolId, uint256 refX18);
